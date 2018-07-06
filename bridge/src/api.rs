@@ -39,7 +39,7 @@ impl<T: DeserializeOwned, F: Future<Item = Value, Error = web3::Error>> Future f
 }
 
 /// Imperative wrapper for web3 function.
-pub fn logs<T: Transport>(transport: T, filter: &Filter) -> ApiCall<Vec<Log>, T::Out> {
+pub fn logs<T: Transport>(transport: T, filter: Filter) -> ApiCall<Vec<Log>, T::Out> {
     ApiCall {
         future: api::Eth::new(transport).logs(filter),
         message: "eth_getLogs",
@@ -183,7 +183,7 @@ impl<T: Transport> Stream for LogStream<T> {
                             from: from,
                             to: last_confirmed_block,
                             future: self.timer
-                                .timeout(logs(&self.transport, &filter), self.request_timeout),
+                                .timeout(logs(&self.transport, filter), self.request_timeout),
                         }
                     } else {
                         LogStreamState::Wait
