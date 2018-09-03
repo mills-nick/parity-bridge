@@ -1,5 +1,54 @@
 pragma solidity ^0.4.17;
 
+/**
+ * @title SafeMath
+ * @dev Math operations with safety checks that throw on error
+ */
+library SafeMath {
+
+  /**
+  * @dev Multiplies two numbers, throws on overflow.
+  */
+  function mul(uint256 a, uint256 b) internal pure returns (uint256 c) {
+    // Gas optimization: this is cheaper than asserting 'a' not being zero, but the
+    // benefit is lost if 'b' is also tested.
+    // See: https://github.com/OpenZeppelin/openzeppelin-solidity/pull/522
+    if (a == 0) {
+      return 0;
+    }
+
+    c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  /**
+  * @dev Integer division of two numbers, truncating the quotient.
+  */
+  function div(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    // uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return a / b;
+  }
+
+  /**
+  * @dev Subtracts two numbers, throws on overflow (i.e. if subtrahend is greater than minuend).
+  */
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  /**
+  * @dev Adds two numbers, throws on overflow.
+  */
+  function add(uint256 a, uint256 b) internal pure returns (uint256 c) {
+    c = a + b;
+    assert(c >= a);
+    return c;
+  }
+}
 
 /// general helpers.
 /// `internal` so they get compiled into contracts using them.
@@ -314,6 +363,8 @@ contract ForeignBridge {
     // following is the part of ForeignBridge that implements an ERC20 token.
     // ERC20 spec: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-20.md
 
+    using SafeMath for uint256;
+
     uint256 public totalSupply;
 
     string public name = "ForeignBridge";
@@ -327,6 +378,9 @@ contract ForeignBridge {
 
     // owner of account approves the transfer of an amount by another account
     mapping(address => mapping (address => uint256)) allowed;
+
+    // nonce for each account
+    mapping(address => uint) nonces;
 
     /// Event created on money transfer
     event Transfer(address indexed from, address indexed to, uint256 tokens);
@@ -349,6 +403,54 @@ contract ForeignBridge {
         balances[recipient] += tokens;
         Transfer(msg.sender, recipient, tokens);
         return true;
+    }
+
+    function nonceOf(address _owner) public constant returns (uint nonce) {
+        return nonces[_owner];
+    }
+
+    function transferWithSign(address _to, uint _amount, uint _nonce, bytes _sign) public returns (bool success) {
+        bytes32 hash = calcEnvHash("transferWithSign");
+        hash = keccak256(hash, _to);
+        hash = keccak256(hash, _amount);
+        hash = keccak256(hash, _nonce);
+        address from = recoverAddress(hash, _sign);
+
+        if (_nonce != nonces[from]) return false;
+        nonces[from]++;
+
+        require(_to != address(0));
+        require(_amount <= balances[from]);
+
+        balances[from] = balances[from].sub(_amount);
+        balances[_to] = balances[_to].add(_amount);
+        emit Transfer(from, _to, _amount);
+        return true;
+    }
+
+    function recoverAddress(bytes32 _hash, bytes _sign) public pure returns (address recoverdAddr) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        require(_sign.length == 65);
+
+        assembly {
+            r := mload(add(_sign, 32))
+            s := mload(add(_sign, 64))
+            v := byte(0, mload(add(_sign, 96)))
+        }
+
+        if (v < 27) v += 27;
+        require(v == 27 || v == 28);
+
+        recoverdAddr = ecrecover(_hash, v, r, s);
+        require(recoverdAddr != 0);
+    }
+
+    function calcEnvHash(bytes32 _functionName) public constant returns (bytes32 hash) {
+        hash = keccak256(this);
+        hash = keccak256(hash, _functionName);
     }
 
     // following is the part of ForeignBridge that is concerned
@@ -490,21 +592,37 @@ contract ForeignBridge {
     /// an authority will pick up `CollectedSignatures` an call `HomeBridge.withdraw`
     /// which transfers `value - relayCost` to `recipient` completing the transfer.
     function transferHomeViaRelay(address recipient, uint256 value, uint256 homeGasPrice) public {
-        require(balances[msg.sender] >= value);
+        transferHomeViaRelay(msg.sender, recipient, value, homeGasPrice);
+    }
+
+    function transferHomeViaRelayWithSign(address recipient, uint256 value, uint256 homeGasPrice, bytes sign) public returns (bool success) {
+        bytes32 hash = calcEnvHash("transferHomeViaRelayWithSign");
+        hash = keccak256(hash, recipient);
+        hash = keccak256(hash, value);
+        hash = keccak256(hash, homeGasPrice);
+        address from = recoverAddress(hash, sign);
+        
+        return transferHomeViaRelay(from, recipient, value, homeGasPrice);
+    }
+
+    function transferHomeViaRelay(address payer, address recipient, uint256 value, uint256 homeGasPrice) private returns (bool success) {
+        require(balances[payer] >= value);
         // don't allow 0 value transfers to home
         require(value > 0);
 
         uint256 estimatedWeiCostOfWithdraw = estimatedGasCostOfWithdraw * homeGasPrice;
         require(value > estimatedWeiCostOfWithdraw);
 
-        balances[msg.sender] -= value;
+        balances[payer] -= value;
         // burns tokens
         totalSupply -= value;
         // in line with the transfer event from `0x0` on token creation
         // recommended by ERC20 (see implementation of `deposit` above)
         // we trigger a Transfer event to `0x0` on token destruction
-        Transfer(msg.sender, 0x0, value);
+        Transfer(payer, 0x0, value);
         Withdraw(recipient, value, homeGasPrice);
+
+        return true;
     }
 
     /// Should be used as sync tool
