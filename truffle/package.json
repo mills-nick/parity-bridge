@@ -12,14 +12,16 @@
   },
   "homepage": "https://github.com/paritytech/parity-bridge",
   "devDependencies": {
-    "concurrently": "^3.5.1",
+    "concurrently": "^3.6.1",
     "coveralls": "^3.0.0",
     "ganache-cli": "^6.0.3",
     "solidity-coverage": "^0.4.8",
     "solium": "^1.1.2",
     "truffle": "^4.0.4"
   },
-  "dependencies": {},
+  "dependencies": {
+    "openzeppelin-solidity": "^1.11.0"
+  },
   "scripts": {
     "ci": "concurrently \"yarn run solium\" \"yarn run truffle-with-rpc\" \"yarn run solidity-coverage\"",
     "ganache": "ganache-cli --port 8547",
