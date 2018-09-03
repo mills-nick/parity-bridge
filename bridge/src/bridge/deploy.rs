@@ -211,11 +211,13 @@ impl DeployedContract {
         contract_creation_code_hex: String,
         receipt: TransactionReceipt,
     ) -> Self {
-        assert_eq!(
-            bytecode_hex,
-            &contract_creation_code_hex[..bytecode_hex.len()],
-            "deployed byte code is contract bytecode followed by constructor args; qed"
-        );
+        // assert_eq!(
+        //     bytecode_hex,
+        //     &contract_creation_code_hex[..bytecode_hex.len()],
+        //     "deployed byte code is contract bytecode followed by constructor args; qed"
+        // );
+
+        debug!("HomeBridge.bin bytecode_hex {:?}", bytecode_hex);
 
         Self {
             contract_name,
